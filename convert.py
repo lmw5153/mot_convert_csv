@@ -25,8 +25,9 @@ import streamlit as st
 st.set_page_config(page_title="OpenCap MOT → CSV 변환기", page_icon="🚶", layout="wide")
 
 st.title("🚶 OpenCap MOT → CSV 변환기")
-st.caption("여러 개의 .mot/.sto 파일을 업로드하면 CSV로 변환합니다. ‘병합’ 기능으로 파일명(=ID) 기준 세로 병합도 지원합니다. (OpenSim 설치 불필요)")
-st.write("mimic")
+st.write("여러 개의 .mot/.sto 파일을 업로드하면 CSV로 변환합니다. ‘병합’ 기능으로 파일명(=ID) 기준 세로 병합도 지원합니다. (OpenSim 설치 불필요)")
+st.write("파일을 밑에 배너에 드래그 해주세요!")
+st.caption("mimic")
 # ---------------------------
 # 유틸: .mot/.sto 헤더 파싱 & 본문 읽기
 # ---------------------------
