@@ -31,6 +31,27 @@ st.caption("mimic")
 # ---------------------------
 # 유틸: .mot/.sto 헤더 파싱 & 본문 읽기
 # ---------------------------
+def load_hero():
+    candidates = [
+        "assets/hero.png",
+        "hero.png",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return Image.open(p)
+    return None
+
+hero = load_hero()
+if hero is not None:
+    with st.container():
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            st.image(hero, use_container_width=True)  # ✅ no deprecation
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+else:
+    st.info("메인 이미지를 표시하려면 `assets/hero.png`(권장) 또는 `hero.png`를 앱 폴더에 두세요.")
+
+
 def parse_opensim_table(file_bytes: bytes) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
     OpenSim .mot/.sto 파일을 텍스트로 파싱하여 pandas DataFrame으로 반환.
