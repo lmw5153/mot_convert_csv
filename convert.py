@@ -35,6 +35,8 @@ def load_hero():
     candidates = [
         "assets/hero.png",
         "hero.png",
+        "static/hero.png",
+        "/mnt/data/Gemini_Generated_Image_o7yi0xo7yi0xo7yi.png",
     ]
     for p in candidates:
         if os.path.exists(p):
@@ -51,16 +53,10 @@ if hero is not None:
 else:
     st.info("메인 이미지를 표시하려면 `assets/hero.png`(권장) 또는 `hero.png`를 앱 폴더에 두세요.")
 
-
+# ---------------------------
+# 유틸: .mot/.sto 헤더 파싱 & 본문 읽기
+# ---------------------------
 def parse_opensim_table(file_bytes: bytes) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """
-    OpenSim .mot/.sto 파일을 텍스트로 파싱하여 pandas DataFrame으로 반환.
-    헤더 메타정보(키:값)를 dict로 함께 반환.
-    규칙:
-      - 'endheader' 줄 이후부터 데이터 영역
-      - 공백/탭 구분
-      - 첫 컬럼(대개 time)을 인덱스 지정하지 않고 그대로 유지
-    """
     text = file_bytes.decode("utf-8", errors="ignore")
     lines = text.splitlines()
 
@@ -70,45 +66,34 @@ def parse_opensim_table(file_bytes: bytes) -> Tuple[pd.DataFrame, Dict[str, str]
         if line.strip().lower() == "endheader":
             header_end_idx = i
             break
-        # 키:값 형태 메타 파싱
         if ":" in line:
             k, v = line.split(":", 1)
             header_meta[k.strip()] = v.strip()
 
     if header_end_idx is None:
-        # .mot/.sto 중 일부는 'endheader' 없이 탭/공백 헤더가 바로 나올 수도 있음 → 휴리스틱
-        # 첫 데이터 라인 추정: 숫자로 시작하는 첫 줄 인덱스
         header_end_idx = 0
         for i, line in enumerate(lines):
             if re.match(r"^\s*[-+]?(\d+(\.\d+)?([eE][-+]?\d+)?)", line.strip()):
                 header_end_idx = i - 1
                 break
 
-    # 데이터 영역 텍스트로 재조합
     data_text = "\n".join(lines[header_end_idx + 1 :])
 
-    # 컬럼명 라인 추정: 데이터 첫 줄이 숫자면, 그 윗줄이 컬럼일 가능성이 높음
-    # pandas에 바로 던져보고, 전부 숫자이면 헤더 없음으로 간주 후 다시 시도
     try:
         df_try = pd.read_csv(io.StringIO(data_text), delim_whitespace=True)
-        # 헤더가 없는 경우(첫 행이 숫자로만 구성) → names 없이 다시 시도
         if all(str(c).replace(".", "", 1).isdigit() for c in df_try.columns[:2]):
             df = pd.read_csv(io.StringIO(data_text), delim_whitespace=True, header=None)
         else:
             df = df_try
     except Exception:
-        # 공백이 아닌 탭으로만 구분되어 있을 수도 있음
-        df = pd.read_csv(io.StringIO(data_text), sep=r"[\t\s]+", engine="python", header=None)
+        df = pd.read_csv(io.StringIO(data_text), sep=r"[\\t\\s]+", engine="python", header=None)
 
-    # 컬럼명 보정: 헤더 라인이 하나 더 있을 수 있음 (문자+숫자 혼재)
-    # 첫 행이 문자열로만 구성돼있으면 컬럼으로 승격
     if df.shape[0] > 1:
         first_row = df.iloc[0].astype(str).tolist()
         if all(re.search(r"[A-Za-z_]", s) for s in first_row):
             df.columns = first_row
             df = df.iloc[1:].reset_index(drop=True)
 
-    # time 컬럼 표준화 (있다면 float로)
     for cand in ["time", "Time", "t", "Time(s)"]:
         if cand in df.columns:
             df.rename(columns={cand: "time"}, inplace=True)
@@ -118,7 +103,6 @@ def parse_opensim_table(file_bytes: bytes) -> Tuple[pd.DataFrame, Dict[str, str]
         with np.errstate(all="ignore"):
             df["time"] = pd.to_numeric(df["time"], errors="coerce")
 
-    # 숫자형으로 바꿀 수 있는 컬럼은 가급적 숫자로
     for c in df.columns:
         if c == "time":
             continue
@@ -128,8 +112,8 @@ def parse_opensim_table(file_bytes: bytes) -> Tuple[pd.DataFrame, Dict[str, str]
 
 
 def sanitize_id_from_filename(name: str) -> str:
-    base = re.sub(r"\.mot$|\.sto$|\.txt$|\.csv$", "", name, flags=re.IGNORECASE)
-    base = re.sub(r"[^\w\-]+", "_", base).strip("_")
+    base = re.sub(r"\\.mot$|\\.sto$|\\.txt$|\\.csv$", "", name, flags=re.IGNORECASE)
+    base = re.sub(r"[^\\w\\-]+", "_", base).strip("_")
     return base or "ID"
 
 
@@ -190,29 +174,23 @@ if files and (btn_convert or btn_merge):
 
             df = apply_time_round(df)
 
-            # 개별 CSV
             csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
             out_individual.append((f"{sanitize_id_from_filename(up.name)}.csv", csv_bytes))
 
             if merge_on:
-                # 파일명 → ID
                 _id = sanitize_id_from_filename(up.name)
-                # 중복 처리
                 if _id in id_counts:
                     id_counts[_id] += 1
                     _id = f"{_id}_{id_counts[_id]}"
                 else:
                     id_counts[_id] = 1
 
-                # 병합용: 맨 앞에 ID 컬럼 추가
                 df_ = df.copy()
                 df_.insert(0, id_column_name, _id)
                 merged_rows.append(df_)
 
-    # 다운로드 섹션
     st.subheader("📥 다운로드")
 
-    # (1) 개별 CSV → ZIP
     if out_individual:
         zip_buf = io.BytesIO()
         with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -226,10 +204,8 @@ if files and (btn_convert or btn_merge):
             mime="application/zip"
         )
 
-    # (2) 병합 CSV
     if merge_on and merged_rows:
         merged_df = pd.concat(merged_rows, ignore_index=True)
-        # time 컬럼이 있으면 정렬(선택)
         if "time" in merged_df.columns:
             merged_df.sort_values([id_column_name, "time"], inplace=True)
         csv_merged = merged_df.to_csv(index=False).encode("utf-8-sig")
@@ -241,13 +217,12 @@ if files and (btn_convert or btn_merge):
             mime="text/csv"
         )
 
-    # 미리보기
     if out_individual:
         st.markdown("---")
         st.subheader("👀 미리보기")
-        # 첫 번째 파일만 살짝 보여주기
         try:
-            preview_df, _ = parse_opensim_table(files[0].getvalue())
+            preview_bytes = files[0].getvalue()
+            preview_df, _ = parse_opensim_table(preview_bytes)
             st.dataframe(preview_df.head(20), use_container_width=True)
         except Exception:
             pass
